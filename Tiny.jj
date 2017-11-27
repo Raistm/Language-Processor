@@ -1,0 +1,757 @@
+options  {
+  STATIC=false;
+}  
+PARSER_BEGIN(AnalizadorSintacticoTiny)
+package asint;
+
+import programa.Programa.Prog;
+import programa.Programa.Dec;
+import programa.Programa.Inst;
+import programa.Programa.Case;
+import programa.Programa.CampoReg;
+import programa.Programa.TDefinido;
+import programa.Programa.FParam;
+import programa.Programa.Exp;
+
+
+import asint.ASTOps.Lista;
+
+class CabezaProcAs {
+   public String proc;
+   public Lista<FParam> fparams;
+   public CabezaProcAs(String proc, Lista<FParam> fparams) {
+      this.proc = proc;
+      this.fparams = fparams;
+   }
+}
+
+public class AnalizadorSintacticoTiny {
+   private ASTOps ops;
+   public void setOps(ASTOps ops) {
+     this.ops = ops;
+   }
+   String enlaceFuente(Token token) {
+    return "fila "+token.beginLine+" columna "+token.beginColumn;
+   }
+}
+PARSER_END(AnalizadorSintacticoTiny)
+  TOKEN:{<#letra:["a"-"z","A"-"Z"]>}
+  TOKEN:{<#digitoPositivo:["1"-"9"]>}
+  TOKEN:{<#digito:<digitoPositivo>|"0">} 
+
+  SKIP:{<["\t"," ","\r","\b","\n"]>}  
+  SKIP:{<"//"(~["\n"])*>}  
+
+  TOKEN:{<TRUE:("t"|"T")("r"|"R")("u"|"U")("e"|"E")>}
+  TOKEN:{<FALSE:("f"|"F")("a"|"A")("l"|"L")("s"|"S")("e"|"E")>}
+  TOKEN:{<INT:("i"|"I")("n"|"N")("t"|"T")>}
+  TOKEN:{<BOOL:("b"|"B")("o"|"O")("o"|"O")("l"|"L")>}
+  TOKEN:{<TYPE:("t"|"T")("y"|"Y")("p"|"P")("e"|"E")>}
+  TOKEN:{<VAR:("v"|"V")("a"|"A")("r"|"R")>}
+  TOKEN:{<WHILE:("w"|"W")("h"|"H")("i"|"I")("l"|"L")("e"|"E")>}
+  TOKEN:{<DO:("d"|"D")("o"|"O")>}
+  TOKEN:{<PROC:("p"|"P")("r"|"R")("o"|"O")("c"|"C")>}
+  TOKEN:{<CALL:("c"|"C")("a"|"A")("l"|"L")("l"|"L")>}
+  TOKEN:{<WITH:("w"|"W")("i"|"I")("t"|"T")("h"|"H")>}
+  TOKEN:{<NEW:("n"|"N")("e"|"E")("w"|"W")>}
+  TOKEN:{<DELETE:("d"|"D")("e"|"E")("l"|"L")("e"|"E")("t"|"T")("e"|"E")>}
+  TOKEN:{<NULL: ("n"|"N")("u"|"U")("l"|"L")("l"|"L")>}
+  TOKEN:{<STRUCT:  ("s"|"S")("t"|"T")("r"|"R")("u"|"U")("c"|"C")("t"|"T")>}
+  TOKEN:{<CASE:  ("c"|"C")("a"|"A")("s"|"S")("e"|"E")>}
+  TOKEN:{<BREAK: ("b"|"B")("r"|"R")("e"|"E")("a"|"A")("k"|"K")>}
+  TOKEN:{<DEFAULTtoken: ("d"|"D")("e"|"E")("f"|"F")("a"|"A")("u"|"U")("l"|"L")("t"|"T")>}
+  TOKEN:{<READ: ("r"|"R")("e"|"E")("a"|"A")("d"|"D")>}
+  TOKEN:{<WRITE:  ("w"|"W")("r"|"R")("i"|"I")("t"|"T")("e"|"E")>}
+
+  TOKEN:{<CHAR:("c"|"C")("h"|"H")("a"|"A")("r"|"R")>}
+  TOKEN:{<FLOAT:("f"|"F")("l"|"L")("o"|"O")("a"|"A")("t"|"T")>}
+  TOKEN:{<STRING:("s"|"S")("t"|"T")("r"|"R")("i"|"I")("n"|"N")("g"|"G")>}
+  TOKEN:{<SWITCH:("s"|"S")("w"|"W")("i"|"I")("t"|"T")("c"|"C")("h"|"H")>}
+  TOKEN:{<IF:("i"|"I")("f"|"F")>}
+  TOKEN:{<THEN:("t"|"T")("h"|"H")("e"|"E")("n"|"N")>}
+  TOKEN:{<ELSE:("e"|"E")("l"|"L")("s"|"S")("e"|"E")>}
+
+  TOKEN:{<identificador:<letra>(<letra>|<digito>)*>}
+  TOKEN:{<numeroEntero: <digitoPositivo> (<digito>)* |"0" >}
+  
+  
+  TOKEN:{<cadena: (<digito>)*<digitoPositivo> |"0" >}
+  TOKEN:{<parteDecimal: "."<cadena> >}
+  TOKEN:{<parteExponencial: ["e","E"]("-")*<numeroEntero>>}
+  TOKEN:{<numeroReal: <numeroEntero>(<parteDecimal>)*(<parteExponencial>)* >}
+
+  TOKEN: {<CTECHAR: "\'"(<letra>|<digito>)"\'">}
+  TOKEN: {<CTESTRING: "\""<identificador>"\"">}
+
+  void inicio()        : {} {programa() <EOF>}
+
+  Prog programa()      : 
+    {Lista<Dec> dec; Inst ins;} 
+    {
+     dec = declaraciones() ins = instruccion() 
+        {return ops.prog(dec,ins);}
+    }
+
+  Lista<Dec> declaraciones() : 
+    {Lista<Dec> decs;} 
+    {
+      decs=listaDeclaraciones() 
+        {return decs;}                            
+            | 
+        {return ops.nodecs();}
+    }
+
+
+  Lista<Dec> listaDeclaraciones() : 
+    {Dec dec; Lista<Dec> decs;} 
+    {
+      dec=declaracion() 
+      decs=rListaDeclaraciones(ops.decs(ops.nodecs(),dec)) 
+          {return decs;}
+    }
+
+  Lista<Dec> rListaDeclaraciones(Lista<Dec> decsh) : 
+     {Dec dec; Lista<Dec> decs;} 
+     {
+       dec=declaracion() decs=rListaDeclaraciones(ops.decs(decsh,dec)) 
+           {return decs;} 
+              | 
+           {return decsh;}
+     }
+
+  Dec declaracion() : 
+     {TDefinido tipo;  Token id; Token proc;
+      CabezaProcAs cabezaProc$as; Inst ins;} 
+     {
+        <TYPE> tipo = tipo0() id=<identificador> ";"
+          {return ops.dectipo(tipo,id.image,enlaceFuente(id));} 
+            |
+        <VAR> tipo = tipo0() id=<identificador> ";"  
+          {return ops.decvar(tipo,id.image,enlaceFuente(id));}
+            |
+  proc=<PROC> cabezaProc$as = cabezaProc() ins = bloque() pyComa()
+          {return ops.decProc(cabezaProc$as.proc, cabezaProc$as.fparams, ins,
+                              enlaceFuente(proc));} 
+      }
+
+  CabezaProcAs cabezaProc() : 
+     {Lista<FParam> fparams; Token id;} 
+     {
+       id=<identificador> "(" fparams = parametrosFormales() ")"
+          {return new CabezaProcAs(id.image,fparams);}
+     }
+
+  Lista<FParam> parametrosFormales() : 
+     {Lista<FParam> fparams;} 
+     {
+       fparams = listaParametrosFormales() 
+         {return fparams;}
+         | 
+         {return ops.nofparams();}
+     }
+
+  Lista<FParam> listaParametrosFormales() : 
+     {FParam fparam;  
+      Lista<FParam> fparams;} 
+     {
+       fparam = parametroFormal() 
+       fparams = rListaParametrosFormales(ops.fparams(ops.nofparams(),fparam))
+          {return fparams;}
+     }
+
+  Lista<FParam> rListaParametrosFormales(Lista<FParam> fparamsh) : 
+     {FParam fparam;
+      Lista<FParam> fparams;} 
+     {"," fparam = parametroFormal() 
+      fparams= rListaParametrosFormales(ops.fparams(fparamsh,fparam)) 
+      {return fparams;}
+      | 
+      {return fparamsh;}
+     }
+
+  FParam parametroFormal() : 
+     {TDefinido tipo; boolean porRef; Token id;} 
+     {
+      tipo = tipo0() porRef = modo() id=<identificador>
+        {return ops.fparam(tipo,porRef,id.image,enlaceFuente(id));}
+     }
+
+  boolean modo() : 
+    {} 
+    {
+     "&" 
+       {return true;} 
+      | 
+       {return false;}
+    }
+  
+  TDefinido tipo0() : 
+    {TDefinido tipo$tipo1;
+     TDefinido tipo$rTipo0;}
+    {
+      tipo$tipo1=tipo1() tipo$rTipo0 = rTipo0(tipo$tipo1)
+        {return tipo$rTipo0;}
+    }
+
+  TDefinido rTipo0(TDefinido tipoh) : 
+    {TDefinido tipo; Token dimension;} 
+    {
+      "*" tipo=rTipo0Pointer(ops.tipoPointer(tipoh)) 
+        {return tipo;}   
+       |
+       "[" dimension=<numeroEntero> "]" 
+       {return ops.tipoArray(Integer.parseInt(dimension.image), tipoh);}
+       |
+        {return tipoh;}
+    }
+
+  TDefinido rTipo0Pointer(TDefinido tipoh) : 
+    {TDefinido tipo;} 
+    {
+      "*" tipo=rTipo0Pointer(ops.tipoPointer(tipoh)) 
+        {return tipo;}   
+       |
+        {return tipoh;}
+    }
+
+  TDefinido tipo1() : 
+    {Token id; } 
+    {
+      <INT>
+        {return ops.tipoInt();} 
+        | 
+      <BOOL> 
+        {return ops.tipoBool();} 
+        | 
+
+      <CHAR> 
+        {return ops.tipoChar();} 
+        |
+      <FLOAT> 
+        {return ops.tipoReal();} 
+        |
+      <STRING> 
+        {return ops.tipoString();} 
+        |
+      id=<STRUCT>
+        {return tstruct(id);}
+        |
+      id=<identificador> 
+        {return ops.tipoRef(id.image,enlaceFuente(id));} 
+    }
+
+  TDefinido tstruct(Token id) :
+  {Lista<CampoReg> fields;}
+  {
+    "{" fields=listaCampos() "}" pyComa()
+    {return ops.tipoRegistro(fields, enlaceFuente(id));}
+  }
+  Lista<CampoReg> listaCampos() : 
+   {CampoReg rcampo; Lista<CampoReg> rcampos;} 
+  {
+    rcampo=campoReg() ";" rcampos=rListaCampos(ops.rcampos(ops.norcampos(),rcampo))
+     {return rcampos;}
+  }
+  Lista<CampoReg> rListaCampos(Lista<CampoReg> rcamposh) : 
+    {CampoReg rcampo; Lista<CampoReg> rcampos;} 
+   { 
+      rcampo = campoReg() ";" rcampos=rListaCampos(ops.rcampos(rcamposh,rcampo)) 
+       {return rcampos;}
+     | 
+    {return rcamposh;}
+   }
+
+  CampoReg campoReg() :
+  {TDefinido tipo; Token id;}
+  {
+  tipo=tipo0() id=<identificador>
+  {return ops.campoRegistro(id.image, tipo);}
+  }
+
+  Inst instruccion() : 
+    {Inst ins;} 
+    {
+     ins = iasig()   
+      {return ins;}
+      | 
+     ins = ibloque() 
+      {return ins;} 
+      | 
+     ins = iwhile()  
+      {return ins;} 
+      | 
+     ins = icall()   
+      {return ins;} 
+      | 
+     ins = inew()     
+      {return ins;} 
+      | 
+     ins = idelete() 
+      {return ins;}
+      | 
+     ins = iswitch() 
+      {return ins;}
+      | 
+     ins = idowhile() 
+      {return ins;}
+      | 
+     ins = iif() 
+      {return ins;}
+      |
+      ins=iread()
+      {return ins;}
+     |
+      ins=iwrite()
+      {return ins;}
+    }
+
+  Inst iread() :
+  {Token readToken; Exp exp;}
+  {
+    readToken=<READ>  exp=exp0() ";"
+    {return ops.iread(exp, enlaceFuente(readToken));}
+  }
+
+  Inst iwrite() :
+  {Token writeToken; Exp exp;}
+  {
+    writeToken=<WRITE> exp=exp0() ";"
+    {return ops.iescribe(exp, enlaceFuente(writeToken));}
+  }
+
+  Inst iasig() : 
+    {Exp el,er; Token asig;} 
+    {
+     el=exp0() asig="=" er=exp0() ";"
+      {return ops.iasig(el,er,enlaceFuente(asig));} 
+    }
+
+  Inst ibloque() : 
+   {Inst ins;} 
+  {
+    ins=bloque() pyComa()
+      {return ins;}
+  }
+
+  Inst iwhile() : 
+   {Exp exp; Inst i; Token While;} 
+   {
+     While=<WHILE> exp=exp0() i=bloque() pyComa()
+      {return ops.iwhile(exp,i,enlaceFuente(While));}
+   }
+
+   Inst idowhile() : 
+   {Exp exp; Inst i; Token Do; Token While;} 
+   {
+     Do=<DO>  i=bloque() While = <WHILE> exp=exp0() pyComa()
+      {return ops.idowhile(exp,i,enlaceFuente(Do));}
+   }
+
+   Inst iif() :
+   {Exp exp; Inst i; Token ifToken; Token then; Inst rif;}
+   {
+    ifToken=<IF> exp=exp0() then=<THEN> i=bloque() rif=iifelse(exp, i, ifToken)
+    {return rif;}
+   }
+
+   Inst iifelse(Exp exp0, Inst bloque0, Token ifToken) :
+   {Inst bloque1; Token elseToken;}
+   {
+      elseToken=<ELSE> bloque1=bloque()
+      {return ops.iifelse(exp0, bloque0, bloque1, enlaceFuente(elseToken));}
+      |
+      {return ops.iif(exp0, bloque0, enlaceFuente(ifToken));}
+   }
+    
+    Inst iswitch() :
+    {Exp exp; Lista<Case> cases; Token SwitchToken; Inst defaultCase;}
+    {
+    SwitchToken=<SWITCH> exp=exp0() "{" cases=casos()  defaultCase=caseDefault() "}"
+      {return ops.iswitch(exp, cases, defaultCase, enlaceFuente(SwitchToken));}
+    }
+
+    Inst caseDefault() :
+    {Token DefaultToken; Inst i;}
+    {
+      DefaultToken=<DEFAULTtoken> ":" i=instruccion()
+      {return i;}
+      |
+      {return null;}
+    }
+  Lista<Case> casos() : 
+    {Lista<Case> rcases;} 
+    {
+      rcases=listaCasos() 
+         {return rcases;}
+      |
+      {return ops.norcases();}
+    }
+  Lista<Case> listaCasos() : 
+   {Case rcase; Lista<Case> rcases;} 
+  {
+    <CASE> rcase=caso() rcases=rListaCasos(ops.rcases(ops.norcases(),rcase))
+     {return rcases;}
+  }
+  Lista<Case> rListaCasos(Lista<Case> rcasesh) : 
+    {Case rcase; Lista<Case> rcases;} 
+   { 
+     <CASE> rcase = caso() rcases=rListaCasos(ops.rcases(rcasesh,rcase)) 
+       {return rcases;}
+     | 
+    {return rcasesh;}
+   }
+
+  Case caso() : 
+    {Exp exp; Inst i;}
+    {
+     exp=constante() ":" i=instruccion()
+    {return ops.icase(exp, i);}
+  }
+
+  Inst icall() : 
+     {Token id;  Lista<Exp> rparams;}  
+     {
+      <CALL> id=<identificador> rparams=parametrosReales() ";"
+         {return ops.icall(id.image,rparams,enlaceFuente(id));}
+     }
+  Lista<Exp> parametrosReales() : 
+    {Lista<Exp> rparams;} 
+    {
+      <WITH> rparams=listaParametrosReales() 
+         {return rparams;}
+      |
+         {return ops.norparams();}
+    }
+  Lista<Exp> listaParametrosReales() : 
+   {Exp rparam; Lista<Exp> rparams;} 
+  {
+    rparam=exp0() rparams=rListaParametrosReales(ops.rparams(ops.norparams(),rparam))
+     {return rparams;}
+  }
+  Lista<Exp> rListaParametrosReales(Lista<Exp> rparamsh) : 
+    {Exp rparam; Lista<Exp> rparams;} 
+   { 
+     "," rparam = exp0() rparams=rListaParametrosReales(ops.rparams(rparamsh,rparam)) 
+       {return rparams;}
+     | 
+    {return rparamsh;}
+   }
+
+  
+  Inst inew() : 
+    {Token cnew; Exp desig;} 
+    {
+     cnew=<NEW> desig=exp0() ";"
+        {return ops.inew(desig,enlaceFuente(cnew));}
+    }
+  
+  Inst idelete() : 
+    {Token cdelete; Exp desig;} 
+    {
+      cdelete=<DELETE> desig=exp0() ";"
+         {return ops.idelete(desig,enlaceFuente(cdelete));}
+    }
+
+  Inst bloque() : 
+    {Lista<Dec> decs; Lista<Inst> is;} 
+   {
+     "{" decs= declaraciones() is=instrucciones() "}" 
+         {return ops.ibloque(decs,is);} 
+   }
+  Lista<Inst> instrucciones() : 
+    {Lista<Inst> insts;} 
+    {
+     insts=listaInstrucciones()
+       {return insts;} 
+     | 
+       {return ops.noInsts();}
+    }
+  Lista<Inst> listaInstrucciones() : 
+    {Inst ins; Lista<Inst> insts;} 
+    {
+      ins=instruccion() insts=rListaInstrucciones(ops.insts(ops.noInsts(),ins))
+        {return insts;}
+    }
+  Lista<Inst> rListaInstrucciones(Lista<Inst> instsh) : 
+   {Inst ins; Lista<Inst> insts;} 
+   {
+     ins=instruccion() insts=rListaInstrucciones(ops.insts(instsh,ins))
+        {return insts;} 
+     | 
+     {return instsh;}
+   }
+    
+  void pyComa() : {} {";" | {}}
+
+  Exp exp0() : 
+   {Exp exp1; Exp exp0;} 
+   {
+    exp1=exp1() exp0=rexp0(exp1)
+     {return exp0;}
+   }
+
+   Exp rexp0(Exp exph) :
+   {Token opToken; Exp exp1;}
+   {
+    opToken=operadorRelNoAsoc() exp1=exp1()
+    {return ops.opBin(opToken.image, exph, exp1, enlaceFuente(opToken));}
+    |
+    {return exph;}
+   }
+
+   Token operadorRelNoAsoc() :
+   {Token t;}
+   {
+    t="=="
+    {return t;}
+    |
+    t="!="
+    {return t;}
+    |
+    t="<="
+    {return t;}
+    |
+    t="<"
+    {return t;}
+    |
+    t="=>"
+    {return t;}
+    |
+    t=">"
+    {return t;}
+   }
+
+  Exp exp1() : 
+   {Exp exp2, rrexp1;} 
+   {
+     exp2=exp2()  rrexp1=rrexp1(exp2)
+       {return rrexp1;}
+   }
+
+  Exp rrexp1(Exp exph) :
+  {Token opToken; Exp exp;}
+  {
+    opToken="||" exp=exp2()
+    {return ops.or(exph, exp, enlaceFuente(opToken));}
+    |
+    exp=rexp1(exph)
+    {return exp;}
+  }
+
+  Exp rexp1(Exp exph) : 
+    {Token op; Exp exp$exp2, exp$rexp1;} 
+    {
+      op=opAditivo() exp$exp2=exp2() 
+      exp$rexp1=rexp1(ops.opBin(op.image,exph,exp$exp2,enlaceFuente(op)))
+         {return exp$rexp1;} 
+      | 
+      {return exph;}
+    }
+
+  Token opAditivo() : 
+    {Token t;} 
+    {
+     t="+"
+      {return t;} 
+      |
+     t="-"
+      {return t;} 
+    }
+
+
+  Exp exp2() :
+  {Exp exp3, rexp2, rrexp2;}
+  {
+    exp3=exp3() rexp2=rexp2(exp3) rrexp2=rrexp2(rexp2)
+    {return rrexp2;}
+  }
+  
+  Exp rexp2(Exp exph) : 
+  {Exp exp; Token t;} 
+  {
+   t="&&" exp=exp3()
+     {return ops.opBin(t.image,exph,exp,enlaceFuente(t));} 
+   | 
+     {return exph;}
+  }
+
+  Exp rrexp2(Exp exph) :
+  {Token opToken; Exp exp3; Exp rrexp2;}
+  {
+    opToken=opMultiplicativo() exp3=exp3() rrexp2=rrexp2(ops.opBin(opToken.image,exph,exp3,enlaceFuente(opToken)))
+    {return rrexp2;}
+    |
+    {return exph;}
+  }
+  
+  Token opMultiplicativo() :
+  {Token t;}
+  {
+    t="*"
+    {return t;}
+    |
+    t="/"
+    {return t;}
+    |
+    t="%"
+    {return t;}
+  }
+
+  Exp exp3() : 
+  {Token opToken; Exp exp;} 
+  {
+    opToken=opUnarioAsoc() exp=exp3()
+    {return ops.opUn(opToken.image, exp, enlaceFuente(opToken));}
+    |
+    "<" opToken=opUnarioNoAsoc() ">" exp=exp4()
+    {return ops.opUn(opToken.image, exp, enlaceFuente(opToken));}
+    |
+    exp=exp4()
+    {return exp;}
+  }
+
+  Token opUnarioNoAsoc() :
+  {Token t;}
+  {
+   t=<INT>
+    {return t;}
+    |
+    t=<BOOL>
+    {return t;}
+    |
+    t=<CHAR>
+    {return t;}
+    |
+    t=<FLOAT>
+    {return t;}
+  }
+
+  Token opUnarioAsoc() :
+  {Token t;}
+  {
+    t="!"
+    {return t;}
+    |
+    t="-"
+    {return t;}
+  }
+
+  Exp exp4() : 
+    {Exp exp5; Exp rexp4;} 
+    {
+      exp5=exp5() rexp4=rexp4(exp5)
+        {return rexp4;}
+    }
+
+  Exp rexp4(Exp exph) :
+  {Exp exp5; Token t;}
+  {
+    t=elementocadena() exp5=exp5()
+    {return ops.elementocadena(exph, exp5, enlaceFuente(t));}
+    |
+    {return exph;}
+  }
+
+  Token elementocadena() :
+  {Token t;}
+  {
+    t="_"
+    {return t;}
+  }
+
+  Exp exp5() : 
+   {Exp exp6, rexp5;} 
+   {
+     exp6 = exp6()  rexp5=rexp5(exp6)
+       {return rexp5;}
+   }
+  Exp rexp5(Exp exph) : 
+    { Exp exp0, rexp5; Token id,punto, flecha;} 
+    {
+      "[" exp0 = exp0() "]" rexp5=rexp5(ops.arrayAccess(exph, exp0, "[]"))
+      {return rexp5;} 
+      |
+      punto = "." id = <identificador> rexp5=rexp5(ops.selField(exph, id.image, enlaceFuente(punto)))
+      {return rexp5;} 
+      |
+      flecha = "->" id = <identificador> rexp5=rexp5(ops.selField(exph, id.image, enlaceFuente(flecha)))
+      {return rexp5;} 
+      |
+      {return exph;}
+
+    }
+    
+    Token tarray() :
+    {Token t;}
+    {
+      t="[]"
+      {return t;}
+    }
+    
+  Exp exp6() : 
+    {Exp exp; Token t;} 
+    {
+      t="*" exp=exp6()  
+       {return ops.opUn(t.image,exp,enlaceFuente(t));}
+     | 
+     exp=exp7() 
+       {return exp;}
+    }
+
+  Exp exp7() : 
+     {Token t; Exp e;} 
+     {
+      t=<identificador> 
+       {return ops.var(t.image,enlaceFuente(t));}
+      | 
+      e=literal()
+        {return e;} 
+      | 
+      "(" e=exp0() ")"
+        {return e;}
+     }
+
+     
+  Exp literal() : 
+    {Token t;} 
+     {
+      t=<numeroEntero>
+       {return ops.cteint(Integer.parseInt(t.image));} 
+      | 
+      <TRUE> 
+       {return ops.ctebool(true);} 
+      | 
+      <FALSE> 
+       {return ops.ctebool(false);} 
+      |
+      t=<numeroReal>
+      {return ops.ctereal(Double.parseDouble(t.image));}
+      |
+      t=<CTECHAR>     
+      {return ops.ctechar((t.image).charAt(1));}
+      |
+      t=<CTESTRING>
+      {return ops.ctestring(t.image.replaceAll("\"$", "").replaceAll("^\"", ""));}
+      |
+      <NULL>
+      {return ops.ctenull();}
+     }
+    
+     Exp constante() :
+  {Token t;} 
+     {
+      t=<numeroEntero>
+       {return ops.cteint(Integer.parseInt(t.image));} 
+      | 
+      <TRUE> 
+       {return ops.ctebool(true);} 
+      | 
+      <FALSE> 
+       {return ops.ctebool(false);} 
+      |
+      t=<numeroReal>
+      {return ops.ctereal(Double.parseDouble(t.image));}
+      |
+      t=<CTECHAR>     
+      {return ops.ctechar((t.image).charAt(1));}
+     }
